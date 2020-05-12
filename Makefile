@@ -1,10 +1,10 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-IMAGE_NAME=meetingrecording
+IMAGE_NAME=img_townhall_broadcast
 IMAGE_VERSION=latest
 ENV_FILE=container.env
-CONTAINER_NAME=recording
+CONTAINER_NAME=container_townhall
 IMAGE_LABEL=$(IMAGE_NAME):$(IMAGE_VERSION)
 
 REGION = $(word 4, $(subst ., , $(ECR_REPO_URI)))

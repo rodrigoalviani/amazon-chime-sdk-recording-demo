@@ -12,7 +12,7 @@ Parameters:
     Default: 8192
   ECSContainerName:
     Type: String
-    Default: 'recording-demo-container'
+    Default: 'container-townhall-broadcast'
   ECSContainerCpu:
     Type: Number
     Default: 4096
@@ -25,7 +25,7 @@ Parameters:
   EcsClusterName:
     Type: String
     Description: 'Specifies the ECS Cluster Name with which the resources would be associated'
-    Default: 'RecordingDemoEC2Cluster'
+    Default: 'EC2ClusterTownhallBroadcast'
   ECRDockerImageArn:
     Type: String
     Description: 'ARN of the docker image stored in ECR along with the tag'
@@ -37,7 +37,7 @@ Parameters:
     Default: 5
   DesiredCapacity:
     Type: Number
-    Default: '5'
+    Default: '1'
     Description: Number of instances to launch in your ECS cluster.
   ImageId:
     Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
@@ -51,13 +51,13 @@ Parameters:
     m4.2xlarge, m4.4xlarge, m5.large, m5.xlarge, m5.2xlarge, m5.4xlarge, m5.8xlarge, c4.xlarge, c4.2xlarge, 
     c4.4xlarge, c5.large, c5.xlarge, c5.2xlarge, c5.4xlarge]
     ConstraintDescription: Please choose a valid instance type.
-  RecordingDemoLogGroupName:
+  TownhallBroadcastLogGroupName:
     Type: String
-    Default: RecordingDemoLogGroup
+    Default: TownhallBroadcastLogGroup
   EnvironmentName:
     Description: An environment name that is prefixed to resource names
     Type: String
-    Default: recording-demo-environment
+    Default: environment-townhall-broadcast
   VpcCIDR:
     Description: Please enter the IP range (CIDR notation) for this VPC
     Type: String
@@ -71,13 +71,7 @@ Parameters:
     Type: String
     Default: 10.192.11.0/24
 Resources:
-  RecordingArtifactsUploadBucket:
-    Type: AWS::S3::Bucket
-    Properties:
-        AccessControl: BucketOwnerFullControl
-        BucketName:
-          Fn::Join: ['', ['chime-meeting-sdk-', {Ref: 'AWS::AccountId'}, '-', {Ref: 'AWS::Region'}, '-recording-artifacts']]
-  RecordingDemoLambdaExecutionRole:
+  TownhallBroadcastLambdaExecutionRole:
     Type: AWS::IAM::Role
     Properties:
         ManagedPolicyArns:
@@ -91,21 +85,21 @@ Resources:
                 Service: [lambda.amazonaws.com]
             Version: '2012-10-17'
   
-  RecordingDemoBuildDeployGroup:
+  TownhallBroadcastBuildDeployLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
       LogGroupName: 
-        Ref: RecordingDemoLogGroupName
+        Ref: TownhallBroadcastLogGroupName
       RetentionInDays: 365
   
-  RecordingDemoLambdaFunction:
+  TownhallBroadcastLambdaFunction:
     Type: 'AWS::Serverless::Function'
     Properties:
-      FunctionName: RecordingDemoLambda
-      Description: Lambda to interact with ECS for starting and stopping recording.
+      FunctionName: TownhallBroadcastLambda
+      Description: Lambda to interact with ECS for starting and stopping broadcast.
       Handler: index.handler
       Role: 
-        Fn::GetAtt: [RecordingDemoLambdaExecutionRole, Arn]
+        Fn::GetAtt: [TownhallBroadcastLambdaExecutionRole, Arn]
       Runtime: nodejs12.x
       Timeout: 300
       MemorySize: 3008
@@ -116,18 +110,16 @@ Resources:
           ecsContainerName: 
             Ref: ECSContainerName
           ecsTaskDefinationArn: 
-            Ref: ECSRecordingDemoTaskDefinition
-          recordingArtifactsBucket:
-            Ref: RecordingArtifactsUploadBucket
+            Ref: ECSTownhallBroadcastTaskDefinition
       CodeUri: ../src/
       Events:
         Api1:
           Type: Api
           Properties:
-            Path: /recording
+            Path: /broadcast
             Method: POST
   
-  ECSRecordingDemoTaskDefinition:
+  ECSTownhallBroadcastTaskDefinition:
     Type: 'AWS::ECS::TaskDefinition'
     Properties:
         Cpu: 
@@ -156,7 +148,7 @@ Resources:
                 LogDriver: awslogs
                 Options:
                   awslogs-group:
-                    Ref: RecordingDemoBuildDeployGroup
+                    Ref: TownhallBroadcastBuildDeployLogGroup
                   awslogs-region:
                     Ref: AWS::Region
                   awslogs-stream-prefix:
@@ -265,11 +257,6 @@ Resources:
         FromPort: '31000'
         ToPort: '61000'
         SourceSecurityGroupId: !Ref EcsSecurityGroup
-  CloudwatchLogsGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-        LogGroupName: !Join ['-', [ECSLogGroup, !Ref AWS::StackName]]
-        RetentionInDays: 14
         
   ECSAutoScalingGroup:
     Type: AWS::AutoScaling::AutoScalingGroup
@@ -334,4 +321,4 @@ Resources:
 Outputs:
   ApiURL:
     Description: "API endpoint URL for Prod environment"
-    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/recording"
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/broadcast"

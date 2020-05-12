@@ -10,7 +10,6 @@ var ecs = new AWS.ECS();
 const ecsClusterArn = process.env.ecsClusterArn;
 const ecsTaskDefinationArn = process.env.ecsTaskDefinationArn;
 const ecsContainerName = process.env.ecsContainerName;
-const recordingArtifactsBucket = process.env.recordingArtifactsBucket;
 
 let responseBody = {
     message: '',
@@ -26,25 +25,30 @@ let response = {
 exports.handler = function(event, context, callback) {
     let meetingURL = "";
     let taskId = "";
-    let recordingAction = "";
+    let action = "";
+    let rtmpEndpoint = "";
     
-    console.log(event);
+    console.log("event", event);
     responseBody.input = event;
     
-    if(event.queryStringParameters && event.queryStringParameters.recordingAction) {
-        console.log("Recording action: " + event.queryStringParameters.recordingAction);
-        recordingAction = event.queryStringParameters.recordingAction;
+    if(event.queryStringParameters && event.queryStringParameters.action) {
+        console.log("Broadcast Action: " + event.queryStringParameters.action);
+        action = event.queryStringParameters.action;
     }
     
-    switch(recordingAction.toLowerCase()) {
+    switch(action.toLowerCase()) {
         case 'start':
-            if(event.queryStringParameters && event.queryStringParameters.meetingURL) {
+            if(event.queryStringParameters 
+                && event.queryStringParameters.meetingURL
+                && event.queryStringParameters.rtmpEndpoint) {
                 console.log("Meeting URL: " + event.queryStringParameters.meetingURL);
+                console.log("RTMP Endpoint: " + event.queryStringParameters.rtmpEndpoint);
                 meetingURL = decodeURIComponent(event.queryStringParameters.meetingURL);
-                return startRecording(event, context, callback, meetingURL);
+                rtmpEndpoint = decodeURIComponent(event.queryStringParameters.rtmpEndpoint);
+                return startRecording(event, context, callback, meetingURL, rtmpEndpoint);
             } else {
                 responseBody = {
-                    message: "Missing parameter: meetingURL",
+                    message: "Missing parameter: meetingURL or rtmpEndpoint",
                     input: event
                 };
                 response = {
@@ -73,7 +77,7 @@ exports.handler = function(event, context, callback) {
             }
         default:
             responseBody = {
-                message: "Invalid parameter: recordingAction. Valid values 'start' & 'stop'",
+                message: "Invalid parameter: action. Valid values 'start' & 'stop'",
                 input: event
             };
             response = {
@@ -87,7 +91,7 @@ exports.handler = function(event, context, callback) {
     callback(null, response);
 };
 
-function startRecording(event, context, callback, meetingUrl) {
+function startRecording(event, context, callback, meetingUrl, rtmpEndpoint) {
     let ecsRunTaskParams = {
         cluster: ecsClusterArn,
         launchType: "EC2",
@@ -101,8 +105,8 @@ function startRecording(event, context, callback, meetingUrl) {
                             value: meetingUrl
                         },
                         {
-                            name: "RECORDING_ARTIFACTS_BUCKET",
-                            value: recordingArtifactsBucket
+                            name: "RTMP_URL",
+                            value: rtmpEndpoint
                         }
                     ],
                     name: ecsContainerName
@@ -115,15 +119,17 @@ function startRecording(event, context, callback, meetingUrl) {
         taskDefinition: ecsTaskDefinationArn
     };
     
+    console.log("ecsRunTaskParams:", JSON.stringify(ecsRunTaskParams));
+    
     ecs.runTask(ecsRunTaskParams, function(err, data) {
         if (err) {
-            console.log(err);   // an error occurred
+            console.log("run task error: ", err);   // an error occurred
             response.statusCode = err.statusCode;
             response.body = JSON.stringify(err, null, ' ');
             context.succeed(response);
         }
         else {
-            console.log(data);  // successful response
+            console.log("run task succeed", data);  // successful response
             response.statusCode = 200;
             response.body = JSON.stringify((data.tasks.length && data.tasks[0].taskArn) ? data.tasks[0].taskArn : data, null, ' ');
             context.succeed(response);

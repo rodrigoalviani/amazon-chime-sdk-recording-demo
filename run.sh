@@ -1,17 +1,21 @@
 #!/bin/bash
 
-# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
-# SPDX-License-Identifier: Apache-2.0
-
 set -xeo pipefail
 
-BROWSER_URL="${MEETING_URL}&record=true"
-SCREEN_WIDTH=${RECORDING_SCREEN_WIDTH:-'1280'}
-SCREEN_HEIGHT=${RECORDING_SCREEN_HEIGHT:-'720'}
+BROWSER_URL=${MEETING_URL}
+SCREEN_WIDTH=1920
+SCREEN_HEIGHT=1080
 SCREEN_RESOLUTION=${SCREEN_WIDTH}x${SCREEN_HEIGHT}
 COLOR_DEPTH=24
-X_SERVER_NUM=1
-S3_BUCKET_NAME=${RECORDING_ARTIFACTS_BUCKET}
+X_SERVER_NUM=2
+VIDEO_BITRATE=3000
+VIDEO_FRAMERATE=30
+VIDEO_GOP=$((VIDEO_FRAMERATE * 2))
+AUDIO_BITRATE=160k
+AUDIO_SAMPLERATE=44100
+AUDIO_CHANNELS=2
+
+RTMP_URL=${RTMP_URL}
 
 # Start PulseAudio server so Firefox will have somewhere to which to send audio
 pulseaudio -D --exit-idle-time=-1
@@ -44,6 +48,7 @@ user_pref("media.navigator.permission.disabled", true);
 user_pref("media.gmp-gmpopenh264.abi", "x86_64-gcc3");
 user_pref("media.gmp-gmpopenh264.lastUpdate", 1571534329);
 user_pref("media.gmp-gmpopenh264.version", "1.8.1.1");
+user_pref("doh-rollout.doorhanger-shown", true);
 EOF
 
 # Start Firefox browser and point it at the URL we want to capture
@@ -51,7 +56,6 @@ EOF
 # NB: The `--width` and `--height` arguments have to be very early in the
 # argument list or else only a white screen will result in the capture for some
 # reason.
-
 firefox \
   -P foo4 \
   --width ${SCREEN_WIDTH} \
@@ -60,10 +64,42 @@ firefox \
   --first-startup \
   --foreground \
   --kiosk \
-  --ssb ${BROWSER_URL} \
+  --ssb \
+  "${BROWSER_URL}" \
   &
 sleep 0.5  # Ensure this has started before moving on
 xdotool mousemove 1 1 click 1  # Move mouse out of the way so it doesn't trigger the "pause" overlay on the video tile
 
-exec node /recording/record.js ${S3_BUCKET_NAME} ${SCREEN_WIDTH} ${SCREEN_HEIGHT}
+# Start ffmpeg to transcode the capture from the X11 framebuffer and the
+# PulseAudio virtual sound device we created earlier and send that to the RTMP
+# endpoint in H.264/AAC format using a FLV container format.
+#
+# NB: These arguments have a very specific order. Seemingly inocuous changes in
+# argument order can have pretty drastic effects, so be careful when
+# adding/removing/reordering arguments here.
+ffmpeg \
+  -hide_banner -loglevel error \
+  -nostdin \
+  -s ${SCREEN_RESOLUTION} \
+  -r ${VIDEO_FRAMERATE} \
+  -draw_mouse 0 \
+  -f x11grab \
+    -i ${DISPLAY} \
+  -f pulse \
+    -ac 2 \
+    -i default \
+  -c:v libx264 \
+    -pix_fmt yuv420p \
+    -profile:v main \
+    -preset veryfast \
+    -x264opts "nal-hrd=cbr:no-scenecut" \
+    -minrate ${VIDEO_BITRATE} \
+    -maxrate ${VIDEO_BITRATE} \
+    -g ${VIDEO_GOP} \
+  -filter_complex "adelay=delays=1000|1000" \
+  -c:a aac \
+    -b:a ${AUDIO_BITRATE} \
+    -ac ${AUDIO_CHANNELS} \
+    -ar ${AUDIO_SAMPLERATE} \
+  -f flv ${RTMP_URL}
 

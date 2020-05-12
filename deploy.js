@@ -128,11 +128,11 @@ spawnOrFail('sam', ['package', '--s3-bucket', `${bucket}`,
                     '--output-template-file', 'build/packaged.yaml',
                     '--region',  `${region}`]);
 
-console.log('Deploying recording application');
+console.log('Deploying townhall broadcast application');
 spawnOrFail('sam', ['deploy', '--template-file', './build/packaged.yaml', '--stack-name', `${stack}`,
                     '--parameter-overrides', `ECRDockerImageArn=${ecrDockerImageArn}`,
                     '--capabilities', 'CAPABILITY_IAM', '--region', `${region}`]);
 
-console.log("Recording API Gateway invoke URL: ");
+console.log("Townhall Broadcast API Gateway invoke URL: ");
 const output=spawnOrFail('aws', ['cloudformation', 'describe-stacks', '--stack-name', `${stack}`,
                     '--query', 'Stacks[0].Outputs[0].OutputValue', '--output', 'text', '--region', `${region}`]);
