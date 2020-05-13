@@ -10,6 +10,7 @@ RUN /usr/bin/apt-get upgrade -y
 RUN /usr/bin/apt-get install -y pulseaudio xvfb firefox ffmpeg xdotool curl unzip
 
 COPY run.sh /
+COPY container.env /
 RUN chmod +x /run.sh
 
 ENTRYPOINT ["/run.sh"]

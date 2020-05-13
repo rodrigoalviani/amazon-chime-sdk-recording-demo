@@ -133,6 +133,6 @@ spawnOrFail('sam', ['deploy', '--template-file', './build/packaged.yaml', '--sta
                     '--parameter-overrides', `ECRDockerImageArn=${ecrDockerImageArn}`,
                     '--capabilities', 'CAPABILITY_IAM', '--region', `${region}`]);
 
-console.log("Townhall Broadcast API Gateway invoke URL: ");
-const output=spawnOrFail('aws', ['cloudformation', 'describe-stacks', '--stack-name', `${stack}`,
-                    '--query', 'Stacks[0].Outputs[0].OutputValue', '--output', 'text', '--region', `${region}`]);
+// console.log("Townhall Broadcast API Gateway invoke URL: ");
+// const output=spawnOrFail('aws', ['cloudformation', 'describe-stacks', '--stack-name', `${stack}`,
+                    // '--query', 'Stacks[0].Outputs[0].OutputValue', '--output', 'text', '--region', `${region}`]);

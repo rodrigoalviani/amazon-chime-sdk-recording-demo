@@ -1,6 +1,7 @@
 #!/bin/bash
 
 set -xeo pipefail
+. ./container.env
 
 BROWSER_URL=${MEETING_URL}
 SCREEN_WIDTH=1920

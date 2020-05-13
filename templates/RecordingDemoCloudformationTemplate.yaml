@@ -29,31 +29,6 @@ Parameters:
   ECRDockerImageArn:
     Type: String
     Description: 'ARN of the docker image stored in ECR along with the tag'
-  EcsAsgMinSize:
-    Type: Number
-    Default: 1
-  EcsAsgMaxSize:
-    Type: Number
-    Default: 5
-  DesiredCapacity:
-    Type: Number
-    Default: '1'
-    Description: Number of instances to launch in your ECS cluster.
-  ImageId:
-    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
-    Description: Use an Image from SSM Parameter Store
-    Default: /aws/service/ecs/optimized-ami/amazon-linux-2/recommended/image_id
-  InstanceType:
-    Description: EC2 instance type
-    Type: String
-    Default: t3.xlarge
-    AllowedValues: [mt2.large, t2.xlarge, t2.2xlarge, t3.large, t3.xlarge, t3.2xlarge, m4.large, m4.xlarge, 
-    m4.2xlarge, m4.4xlarge, m5.large, m5.xlarge, m5.2xlarge, m5.4xlarge, m5.8xlarge, c4.xlarge, c4.2xlarge, 
-    c4.4xlarge, c5.large, c5.xlarge, c5.2xlarge, c5.4xlarge]
-    ConstraintDescription: Please choose a valid instance type.
-  TownhallBroadcastLogGroupName:
-    Type: String
-    Default: TownhallBroadcastLogGroup
   EnvironmentName:
     Description: An environment name that is prefixed to resource names
     Type: String
@@ -71,53 +46,45 @@ Parameters:
     Type: String
     Default: 10.192.11.0/24
 Resources:
-  TownhallBroadcastLambdaExecutionRole:
-    Type: AWS::IAM::Role
-    Properties:
-        ManagedPolicyArns:
-        - 'arn:aws:iam::aws:policy/CloudWatchLogsFullAccess'
-        - 'arn:aws:iam::aws:policy/AmazonECS_FullAccess'
-        AssumeRolePolicyDocument:
-            Statement:
-            - Action: ['sts:AssumeRole']
-              Effect: Allow
-              Principal:
-                Service: [lambda.amazonaws.com]
-            Version: '2012-10-17'
   
-  TownhallBroadcastBuildDeployLogGroup:
+  TownhallBroadcastECSLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: 
-        Ref: TownhallBroadcastLogGroupName
+      LogGroupName: townhall-broadcast-ecs-log-group
       RetentionInDays: 365
   
-  TownhallBroadcastLambdaFunction:
-    Type: 'AWS::Serverless::Function'
+  ECSCluster:
+    Type: 'AWS::ECS::Cluster'
     Properties:
-      FunctionName: TownhallBroadcastLambda
-      Description: Lambda to interact with ECS for starting and stopping broadcast.
-      Handler: index.handler
-      Role: 
-        Fn::GetAtt: [TownhallBroadcastLambdaExecutionRole, Arn]
-      Runtime: nodejs12.x
-      Timeout: 300
-      MemorySize: 3008
-      Environment:
-        Variables:
-          ecsClusterArn:
-            Fn::GetAtt: [ECSCluster, Arn]
-          ecsContainerName: 
-            Ref: ECSContainerName
-          ecsTaskDefinationArn: 
-            Ref: ECSTownhallBroadcastTaskDefinition
-      CodeUri: ../src/
-      Events:
-        Api1:
-          Type: Api
-          Properties:
-            Path: /broadcast
-            Method: POST
+        ClusterName: 
+            Ref: EcsClusterName
+  
+  ContainerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+        GroupDescription: Security group for container 
+        GroupName: container-security=group
+        VpcId: !Ref VPC
+  EcsSecurityGroupHTTPinbound:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+        GroupId: !Ref ContainerSecurityGroup
+        IpProtocol: tcp
+        FromPort: '80'
+        ToPort: '80'
+        CidrIp: 0.0.0.0/0
+  
+  ECSTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
   
   ECSTownhallBroadcastTaskDefinition:
     Type: 'AWS::ECS::TaskDefinition'
@@ -128,10 +95,9 @@ Resources:
             Ref: ECSTaskMemory
         RequiresCompatibilities:
             - EC2
-        Volumes:
-            - Name: 'dbus'
-              Host:
-                SourcePath: '/run/dbus/system_bus_socket:/run/dbus/system_bus_socket'
+            - FARGATE
+        NetworkMode: awsvpc
+        ExecutionRoleArn: !Ref ECSTaskExecutionRole
         ContainerDefinitions:
             - Name: 
                 Ref: ECSContainerName
@@ -147,20 +113,30 @@ Resources:
               LogConfiguration:
                 LogDriver: awslogs
                 Options:
-                  awslogs-group:
-                    Ref: TownhallBroadcastBuildDeployLogGroup
-                  awslogs-region:
+                  awslogs-group: 
+                    Ref: TownhallBroadcastECSLogGroup
+                  awslogs-region: 
                     Ref: AWS::Region
-                  awslogs-stream-prefix:
+                  awslogs-stream-prefix: 
                     Ref: ECSContainerName
-
-  ECSCluster:
-    Type: 'AWS::ECS::Cluster'
-    Properties:
-        ClusterName: 
-            Ref: EcsClusterName
-# Refer: https://docs.aws.amazon.com/codebuild/latest/userguide/cloudformation-vpc-template.html
   
+  Service:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: townhall-broadcast-service
+      Cluster: !Ref ECSCluster
+      TaskDefinition: !Ref ECSTownhallBroadcastTaskDefinition
+      DesiredCount: 1
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          Subnets:
+            - !Ref PublicSubnet1
+          SecurityGroups:
+            - !GetAtt ContainerSecurityGroup.GroupId
+
+# Refer: https://docs.aws.amazon.com/codebuild/latest/userguide/cloudformation-vpc-template.html
   VPC:
     Type: AWS::EC2::VPC
     Properties:
@@ -228,97 +204,3 @@ Resources:
     Properties:
       RouteTableId: !Ref PublicRouteTable
       SubnetId: !Ref PublicSubnet2
-  EcsSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-        GroupDescription: ECS Security Group
-        VpcId: !Ref VPC
-  EcsSecurityGroupHTTPinbound:
-    Type: AWS::EC2::SecurityGroupIngress
-    Properties:
-        GroupId: !Ref EcsSecurityGroup
-        IpProtocol: tcp
-        FromPort: '80'
-        ToPort: '80'
-        CidrIp: 0.0.0.0/0
-  EcsSecurityGroupSSHinbound:
-    Type: AWS::EC2::SecurityGroupIngress
-    Properties:
-        GroupId: !Ref EcsSecurityGroup
-        IpProtocol: tcp
-        FromPort: '22'
-        ToPort: '22'
-        CidrIp: 0.0.0.0/0
-  EcsSecurityGroupALBports:
-    Type: AWS::EC2::SecurityGroupIngress
-    Properties:
-        GroupId: !Ref EcsSecurityGroup
-        IpProtocol: tcp
-        FromPort: '31000'
-        ToPort: '61000'
-        SourceSecurityGroupId: !Ref EcsSecurityGroup
-        
-  ECSAutoScalingGroup:
-    Type: AWS::AutoScaling::AutoScalingGroup
-    Properties:
-      VPCZoneIdentifier: 
-      - !Ref PublicSubnet1
-      - !Ref PublicSubnet2
-      LaunchConfigurationName: !Ref ContainerInstances
-      MinSize: '1'
-      MaxSize: !Ref EcsAsgMaxSize
-      DesiredCapacity: !Ref DesiredCapacity
-    CreationPolicy:
-      ResourceSignal:
-        Timeout: PT15M
-    UpdatePolicy:
-      AutoScalingReplacingUpdate:
-        WillReplace: 'true'
-
-  ContainerInstances:
-    Type: AWS::AutoScaling::LaunchConfiguration
-    Properties:
-      ImageId: !Ref ImageId
-      SecurityGroups: [!Ref EcsSecurityGroup]
-      InstanceType: !Ref InstanceType
-      IamInstanceProfile: !Ref EC2InstanceProfile
-      UserData:
-        Fn::Base64: !Sub |
-          #!/bin/bash -xe
-          echo ECS_CLUSTER=${ECSCluster} >> /etc/ecs/ecs.config
-          echo ECS_IMAGE_PULL_BEHAVIOR=prefer-cached >> /etc/ecs/ecs.config
-          yum install -y aws-cfn-bootstrap
-          /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource ECSAutoScalingGroup --region ${AWS::Region}
-  EC2InstanceProfile:
-    Type: AWS::IAM::InstanceProfile
-    Properties:
-      Path: /
-      Roles: [!Ref EC2Role]
-  EC2Role:
-    Type: AWS::IAM::Role
-    Properties:
-      ManagedPolicyArns:
-        - 'arn:aws:iam::aws:policy/CloudWatchLogsFullAccess'
-        - 'arn:aws:iam::aws:policy/AmazonECS_FullAccess'
-        - 'arn:aws:iam::aws:policy/AmazonS3FullAccess'
-      AssumeRolePolicyDocument:
-        Statement:
-        - Effect: Allow
-          Principal:
-            Service: [ec2.amazonaws.com]
-          Action: ['sts:AssumeRole']
-      Path: /
-      Policies:
-      - PolicyName: ecs-service
-        PolicyDocument:
-          Statement:
-          - Effect: Allow
-            Action: ['ecs:CreateCluster', 'ecs:DeregisterContainerInstance', 'ecs:DiscoverPollEndpoint',
-              'ecs:Poll', 'ecs:RegisterContainerInstance', 'ecs:StartTelemetrySession',
-              'ecs:Submit*', 'logs:CreateLogStream', 'logs:PutLogEvents', 'ecr:GetAuthorizationToken', 
-              'ecr:BatchCheckLayerAvailability', 'ecr:BatchGetImage', 'ecr:GetDownloadUrlForLayer']
-            Resource: '*'
-Outputs:
-  ApiURL:
-    Description: "API endpoint URL for Prod environment"
-    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/broadcast"
