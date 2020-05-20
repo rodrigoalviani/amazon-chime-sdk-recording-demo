@@ -26,6 +26,7 @@ const transcodeStreamToOutput = spawn('ffmpeg',[
     '-hide_banner',
     '-loglevel', 'error',
     // disable interaction via stdin
+    '-vn',
     '-nostdin',
     '-f', 'pulse',
         '-ac', '2',
